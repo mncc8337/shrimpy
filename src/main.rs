@@ -1,4 +1,5 @@
 use {
+    std::sync::Arc,
     anyhow::{Context, Result},
     wgpu::{Device, Queue, Surface, SurfaceError},
     winit::{
@@ -12,43 +13,37 @@ use {
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
-#[derive(Default)]
 struct GPUInfo {
-    device: Option<Device>,
-    queue: Option<Queue>,
-    surface: Option<Surface<'static>>,
+    device: Device,
+    queue: Queue,
+    surface: Surface<'static>,
 }
 
-#[derive(Default)]
-struct Shrimpy {
-    window: Option<Window>,
-    gpu_info: Option<GPUInfo>,
-}
-
-impl Shrimpy {
-    async fn get_gpu_device(&mut self) {
+impl GPUInfo {
+    fn new(window: Arc<Window>) -> Self {
         use wgpu::TextureFormat::{Bgra8Unorm, Rgba8Unorm};
 
-        let window = self.window
-            .as_ref()
-            .context("Window is not initialized").unwrap();
-
+        let size = window.inner_size();
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window).unwrap();
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .context("failed to find a compatible adapter").unwrap();
+        let (device, queue, adapter) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(&surface),
+                })
+                .await
+                .context("failed to find a compatible adapter").unwrap();
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
-            .await
-            .context("failed to connect to the GPU").unwrap();
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .context("failed to connect to the GPU").unwrap();
+
+            (device, queue, adapter)
+        });
 
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -57,7 +52,6 @@ impl Shrimpy {
             .find(|it| matches!(it, Rgba8Unorm | Bgra8Unorm))
             .context("could not find preferred texture format (Rgba8Unorm or Bgra8Unorm)").unwrap();
 
-        let size = window.inner_size();
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -70,15 +64,14 @@ impl Shrimpy {
         };
         surface.configure(&device, &config);
 
-        self.gpu_info = Some(GPUInfo {
-            device: Some(device),
-            queue: Some(queue),
-            // idk if this would cause any issues in the future
-            // but it takes me 5hrs to fix the lifetime issue
-            // so im leaving it as it is now
-            surface: Some(unsafe {std::mem::transmute::<Surface<'_>, Surface<'static>>(surface)}),
-        });
+        Self {device, queue, surface}
     }
+}
+
+#[derive(Default)]
+struct Shrimpy {
+    window: Option<Arc<Window>>,
+    gpu_info: Option<GPUInfo>,
 }
 
 impl ApplicationHandler for Shrimpy {
@@ -87,8 +80,12 @@ impl ApplicationHandler for Shrimpy {
             .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH, HEIGHT))
             .with_resizable(false)
             .with_title("Shrimpy".to_string());
-        self.window = Some(event_loop.create_window(window_attributes).unwrap());
-        pollster::block_on(self.get_gpu_device());
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let gpu_info = GPUInfo::new(Arc::clone(&window));
+        window.request_redraw();
+
+        self.window = Some(window);
+        self.gpu_info = Some(gpu_info);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -102,8 +99,6 @@ impl ApplicationHandler for Shrimpy {
                     .as_ref()
                     .unwrap()
                     .surface
-                    .as_ref()
-                    .unwrap()
                     .get_current_texture()
                     .expect("failed to get current texture");
 
