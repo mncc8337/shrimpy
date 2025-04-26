@@ -25,6 +25,62 @@ struct Shrimpy {
     gpu_info: Option<GPUInfo>,
 }
 
+impl Shrimpy {
+    async fn get_gpu_device(&mut self) {
+        use wgpu::TextureFormat::{Bgra8Unorm, Rgba8Unorm};
+
+        let window = self.window
+            .as_ref()
+            .context("Window is not initialized").unwrap();
+
+        let instance = wgpu::Instance::default();
+        let surface = instance.create_surface(window).unwrap();
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+            })
+            .await
+            .context("failed to find a compatible adapter").unwrap();
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .context("failed to connect to the GPU").unwrap();
+
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps
+            .formats
+            .into_iter()
+            .find(|it| matches!(it, Rgba8Unorm | Bgra8Unorm))
+            .context("could not find preferred texture format (Rgba8Unorm or Bgra8Unorm)").unwrap();
+
+        let size = window.inner_size();
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 3,
+        };
+        surface.configure(&device, &config);
+
+        self.gpu_info = Some(GPUInfo {
+            device: Some(device),
+            queue: Some(queue),
+            // idk if this would cause any issues in the future
+            // but it takes me 5hrs to fix the lifetime issue
+            // so im leaving it as it is now
+            surface: Some(unsafe {std::mem::transmute::<Surface<'_>, Surface<'static>>(surface)}),
+        });
+    }
+}
+
 impl ApplicationHandler for Shrimpy {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
@@ -32,56 +88,7 @@ impl ApplicationHandler for Shrimpy {
             .with_resizable(false)
             .with_title("Shrimpy".to_string());
         self.window = Some(event_loop.create_window(window_attributes).unwrap());
-        pollster::block_on(async {
-            use wgpu::TextureFormat::{Bgra8Unorm, Rgba8Unorm};
-
-            let window = self.window
-                .as_ref()
-                .context("Window is not initialized").unwrap();
-
-            let instance = wgpu::Instance::default();
-            let surface = instance.create_surface(window).unwrap();
-
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    force_fallback_adapter: false,
-                    compatible_surface: Some(&surface),
-                })
-                .await
-                .context("failed to find a compatible adapter").unwrap();
-
-            let (device, queue) = adapter
-                .request_device(&wgpu::DeviceDescriptor::default())
-                .await
-                .context("failed to connect to the GPU").unwrap();
-
-            let caps = surface.get_capabilities(&adapter);
-            let format = caps
-                .formats
-                .into_iter()
-                .find(|it| matches!(it, Rgba8Unorm | Bgra8Unorm))
-                .context("could not find preferred texture format (Rgba8Unorm or Bgra8Unorm)").unwrap();
-
-            let size = window.inner_size();
-            let config = wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format,
-                width: size.width,
-                height: size.height,
-                present_mode: wgpu::PresentMode::AutoVsync,
-                alpha_mode: caps.alpha_modes[0],
-                view_formats: vec![],
-                desired_maximum_frame_latency: 3,
-            };
-            surface.configure(&device, &config);
-
-            self.gpu_info = Some(GPUInfo {
-                device: Some(device),
-                queue: Some(queue),
-                surface: Some(unsafe {std::mem::transmute::<Surface<'_>, Surface<'static>>(surface)}),
-            })
-        })
+        pollster::block_on(self.get_gpu_device());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
