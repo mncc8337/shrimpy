@@ -13,6 +13,13 @@ struct Uniforms {
     width: u32,
     height: u32,
     elapsed_seconds: f32,
+    frame_count: u32,
+
+    // camera_position: vec3f,
+    // camera_direction: vec3f,
+    camera_fov: f32,
+    camera_apeture: f32,
+    camera_diverge_strength: f32,
 }
 
 pub struct Gfx {
@@ -25,8 +32,10 @@ pub struct Gfx {
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
 
+    screen_texture: [wgpu::Texture; 2],
+
     render_pipeline: wgpu::RenderPipeline,
-    render_bind_group: wgpu::BindGroup,
+    render_bind_group: [wgpu::BindGroup; 2],
 }
 
 impl Gfx {
@@ -80,6 +89,11 @@ impl Gfx {
             width: window_size.width,
             height: window_size.height,
             elapsed_seconds: 0.0,
+            frame_count: 0,
+
+            camera_fov: 3.141592654 / 2.5,
+            camera_apeture: 0.02,
+            camera_diverge_strength: 0.001,
         };
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
@@ -93,18 +107,14 @@ impl Gfx {
             &Gfx::compile_shader_module(&device),
             texture_format
         );
-        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &uniform_buffer,
-                    offset: 0,
-                    size: None,
-                }),
-            }],
-        });
+
+        let screen_texture = Gfx::create_texture(&device, window_size.width, window_size.height);
+        let render_bind_group = Gfx::create_bind_groups(
+            &device,
+            &bind_group_layout,
+            &screen_texture,
+            &uniform_buffer,
+        );
 
         Self {
             surface,
@@ -115,6 +125,8 @@ impl Gfx {
 
             uniforms,
             uniform_buffer,
+
+            screen_texture,
 
             render_pipeline,
             render_bind_group,
@@ -147,6 +159,28 @@ impl Gfx {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float {
+                            filterable: false,
+                        },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
                 },
@@ -190,9 +224,97 @@ impl Gfx {
         (bind_group_layout, pipeline)
     }
 
+    fn create_bind_groups(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        textures: &[wgpu::Texture; 2],
+        uniform_buffer: &wgpu::Buffer,
+    ) -> [wgpu::BindGroup; 2] {
+        let views = [
+            textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+
+        [
+            // bind group with view[0] assigned to binding 1 and view[1] assigned to binding 2
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: uniform_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&views[0]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&views[1]),
+                    },
+                ],
+            }),
+
+            // bind group with view[1] assigned to binding 1 and view[0] assigned to binding 2
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: uniform_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&views[1]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&views[0]),
+                    },
+                ],
+            }),
+        ]
+    }
+
+    fn create_texture(device: &wgpu::Device, width: u32, height: u32) -> [wgpu::Texture; 2] {
+        let desc = &wgpu::TextureDescriptor {
+            label: Some("texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        };
+
+        [device.create_texture(desc), device.create_texture(desc)]
+    }
+
     pub fn render_frame(&mut self) {
         let elapsed = self.start_time.elapsed().as_millis();
         self.uniforms.elapsed_seconds = elapsed as f32 / 1000.0;
+        self.uniforms.frame_count += 1;
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::bytes_of(&self.uniforms)
+        );
 
         let frame = self.surface
             .get_current_texture()
@@ -220,14 +342,12 @@ impl Gfx {
             ..Default::default()
         });
 
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::bytes_of(&self.uniforms)
-        );
-
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+        render_pass.set_bind_group(
+            0,
+            &self.render_bind_group[(self.uniforms.frame_count % 2) as usize],
+            &[],
+        );
 
         render_pass.draw(0..6, 0..1);
 
