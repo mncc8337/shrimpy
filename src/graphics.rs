@@ -1,25 +1,26 @@
 use {
-    std::sync::Arc,
-    std::time::Instant,
-    anyhow::{Context, Result},
+    crate::camera::Camera,
+    // crate::vec3::Vec3,
+    anyhow::Context,
     bytemuck::{Pod, Zeroable},
+    core::str,
+    std::{borrow::Cow, sync::Arc, time::Instant},
     wgpu,
-    winit::window::Window,
+    winit::window::Window
 };
 
 #[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 struct Uniforms {
+    camera: Camera,
+    // ^ size 64, align 16
     width: u32,
     height: u32,
     elapsed_seconds: f32,
     frame_count: u32,
-
-    // camera_position: vec3f,
-    // camera_direction: vec3f,
-    camera_fov: f32,
-    camera_apeture: f32,
-    camera_diverge_strength: f32,
+    pub gamma_correction: f32,
+    _pad0: [u32; 3],
+    // ^ size 32, align 4
 }
 
 pub struct Gfx {
@@ -39,7 +40,7 @@ pub struct Gfx {
 }
 
 impl Gfx {
-    pub fn new(window: Arc<Window>) -> Self {
+    pub fn new(window: Arc<Window>, shader_code: &str) -> Self {
         use wgpu::TextureFormat::{Bgra8Unorm, Rgba8Unorm};
 
         let start_time = Instant::now();
@@ -86,14 +87,15 @@ impl Gfx {
         surface.configure(&device, &config);
 
         let uniforms = Uniforms {
+            camera: Camera::new(),
+            // ^
             width: window_size.width,
             height: window_size.height,
             elapsed_seconds: 0.0,
             frame_count: 0,
-
-            camera_fov: 3.141592654 / 2.5,
-            camera_apeture: 0.02,
-            camera_diverge_strength: 0.001,
+            gamma_correction: 2.2,
+            _pad0: [0; 3],
+            // ^
         };
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
@@ -102,9 +104,14 @@ impl Gfx {
             mapped_at_creation: false,
         });
 
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_code)),
+        });
+
         let (bind_group_layout, render_pipeline) = Gfx::create_pipeline(
             &device,
-            &Gfx::compile_shader_module(&device),
+            &shader_module,
             texture_format
         );
 
@@ -131,17 +138,6 @@ impl Gfx {
             render_pipeline,
             render_bind_group,
         }
-    }
-
-    fn compile_shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
-        use std::borrow::Cow;
-
-        let code = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders.wgsl"));
-
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(code)),
-        })
     }
 
     fn create_pipeline(

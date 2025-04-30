@@ -1,8 +1,10 @@
+mod vec3;
+mod camera;
 mod graphics;
 
 use {
     std::sync::Arc,
-    anyhow::{Context, Result},
+    anyhow::Result,
     winit::{
         application::ApplicationHandler,
         event::WindowEvent,
@@ -27,8 +29,15 @@ impl ApplicationHandler for Shrimpy {
             .with_inner_size(winit::dpi::PhysicalSize::new(self.width, self.height))
             .with_resizable(false)
             .with_title("Shrimpy".to_string());
+
+        // let shader_code = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders.wgsl"));
+        // for faster testing
+        let shader_code = &std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders.wgsl")
+        ).unwrap();
+
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        let gfx = Gfx::new(Arc::clone(&window));
+        let gfx = Gfx::new(Arc::clone(&window), shader_code);
         window.request_redraw();
 
         self.window = Some(window);
