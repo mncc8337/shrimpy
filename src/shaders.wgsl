@@ -106,8 +106,8 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var screen_texture_old: texture_2d<f32>;
-@group(0) @binding(2) var screen_texture_new: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(1) var radiance_samples_old: texture_2d<f32>;
+@group(0) @binding(2) var radiance_samples_new: texture_storage_2d<rgba32float, write>;
 
 struct Ray {
     origin: vec3f,
@@ -314,8 +314,7 @@ fn fs_display(
     // load previous progress
     var color: vec4f;
     if uniforms.frame_count > 1 {
-        color = textureLoad(screen_texture_old, vec2u(pos.xy), 0);
-        color *= f32(uniforms.frame_count - 1);
+        color = textureLoad(radiance_samples_old, vec2u(pos.xy), 0);
     } else {
         color = vec4f(0.0);
     }
@@ -323,10 +322,9 @@ fn fs_display(
     // save new progress and render
     let path_traced = vec4f(path_trace(pos, scene, 4), 1.0);
     color += path_traced;
-    color /= f32(uniforms.frame_count);
-    textureStore(screen_texture_new, vec2u(pos.xy), color);
+    textureStore(radiance_samples_new, vec2u(pos.xy), color);
 
-    return pow(color, vec4f(1.0 / uniforms.gamma_correction));
+    return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
 }
 
 var<private> vertices: array<vec2f, 6> = array<vec2f, 6>(

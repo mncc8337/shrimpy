@@ -3,16 +3,14 @@ mod camera;
 mod graphics;
 
 use {
-    std::sync::Arc,
-    anyhow::Result,
-    winit::{
+    anyhow::Result, graphics::Gfx, std::sync::Arc, winit::{
         application::ApplicationHandler,
-        event::WindowEvent,
+        event::{
+            DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent
+        },
         event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
         window::{Window, WindowId}
-    },
-
-    graphics::Gfx,
+    }
 };
 
 #[derive(Default)]
@@ -51,13 +49,32 @@ impl ApplicationHandler for Shrimpy {
                 event_loop.exit();
             },
             WindowEvent::RedrawRequested => {
-                self.gfx
-                    .as_mut()
-                    .unwrap()
-                    .render_frame();
+                self.gfx.as_mut().unwrap().render_frame();
 
                 self.window.as_ref().unwrap().request_redraw();
-            }
+            },
+            _ => (),
+        }
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+        match event {
+            DeviceEvent::MouseWheel { delta } => {
+                let delta = match delta {
+                    MouseScrollDelta::PixelDelta(delta) => 0.001 * delta.y as f32,
+                    MouseScrollDelta::LineDelta(_, y) => y * 0.001,
+                };
+                let _gfx = self.gfx.as_mut().unwrap();
+                _gfx.uniforms.camera.foward(delta);
+                _gfx.render_reset()
+            },
+            DeviceEvent::Button { button, state } => {
+                if state == ElementState::Pressed && button == 2 {
+                    pollster::block_on(async {
+                        self.gfx.as_mut().unwrap().save_render().await;
+                    });
+                }
+            },
             _ => (),
         }
     }

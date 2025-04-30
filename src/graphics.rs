@@ -1,9 +1,8 @@
 use {
     crate::camera::Camera,
-    // crate::vec3::Vec3,
     anyhow::Context,
+    chrono::Local,
     bytemuck::{Pod, Zeroable},
-    core::str,
     std::{borrow::Cow, sync::Arc, time::Instant},
     wgpu,
     winit::window::Window
@@ -11,8 +10,8 @@ use {
 
 #[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
-struct Uniforms {
-    camera: Camera,
+pub struct Uniforms {
+    pub camera: Camera,
     // ^ size 64, align 16
     width: u32,
     height: u32,
@@ -30,10 +29,10 @@ pub struct Gfx {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    uniforms: Uniforms,
+    pub uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
 
-    screen_texture: [wgpu::Texture; 2],
+    radiance_samples: [wgpu::Texture; 2],
 
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: [wgpu::BindGroup; 2],
@@ -115,11 +114,11 @@ impl Gfx {
             texture_format
         );
 
-        let screen_texture = Gfx::create_texture(&device, window_size.width, window_size.height);
+        let radiance_samples = Gfx::create_texture(&device, window_size.width, window_size.height);
         let render_bind_group = Gfx::create_bind_groups(
             &device,
             &bind_group_layout,
-            &screen_texture,
+            &radiance_samples,
             &uniform_buffer,
         );
 
@@ -133,7 +132,7 @@ impl Gfx {
             uniforms,
             uniform_buffer,
 
-            screen_texture,
+            radiance_samples,
 
             render_pipeline,
             render_bind_group,
@@ -294,11 +293,17 @@ impl Gfx {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING 
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         };
 
         [device.create_texture(desc), device.create_texture(desc)]
+    }
+
+    pub fn render_reset(&mut self) {
+        self.uniforms.frame_count = 0;
     }
 
     pub fn render_frame(&mut self) {
@@ -353,5 +358,79 @@ impl Gfx {
         self.queue.submit(Some(command_buffer));
 
         frame.present();
+    }
+
+    pub async fn save_render(&self) {
+        // create buffer for readback
+        let buffer_size = (self.uniforms.width * self.uniforms.height * 16) as wgpu::BufferAddress;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Readback Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Copy Encoder"),
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.radiance_samples[(self.uniforms.frame_count % 2) as usize],
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(16 * self.uniforms.width),
+                    rows_per_image: Some(self.uniforms.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.uniforms.width,
+                height: self.uniforms.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        // Map the buffer
+        let buffer_slice = buffer.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+
+        let _ = self.device.poll(wgpu::PollType::Wait); // wait for GPU work
+
+        let data = buffer_slice.get_mapped_range();
+        let data_f32: &[f32] = bytemuck::cast_slice(&data);
+        let mut data_u8 = vec![0 as u8; data_f32.len()];
+
+        // copy and convert data to u8 format
+        // TODO: implement other tonemapping technique
+        // here im using rgb clampping
+        for i in 0..data_f32.len() {
+            let converted = data_f32[i] / (self.uniforms.frame_count as f32);
+            data_u8[i] = (converted.powf(1.0/self.uniforms.gamma_correction) * 255.0) as u8;
+        }
+
+        drop(data);
+        buffer.unmap();
+
+        let img: image::ImageBuffer<image::Rgba<u8>, _> = image::ImageBuffer::from_raw(
+            self.uniforms.width,
+            self.uniforms.height,
+            data_u8
+        ).ok_or("failed to create ImageBuffer from raw data").unwrap();
+
+        // save as PNG
+        let date = Local::now();
+        let file = std::fs::File::create(format!("./imgs/{}.png",date.format("%Y-%m-%d-%H-%M-%S"))).unwrap();
+        let mut writer = std::io::BufWriter::new(file);
+        img.write_to(&mut writer, image::ImageFormat::Png).unwrap();
+
+        println!("image saved");
     }
 }
