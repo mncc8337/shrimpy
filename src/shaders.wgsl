@@ -144,7 +144,7 @@ fn sky_color(ray: Ray) -> vec3f {
 fn new_ray(pos: vec4f) -> Ray {
     let aspect_ratio = f32(uniforms.width) / f32(uniforms.height);
 
-    let camera_right_direction = vec3f(uniforms.camera.direction.z, 0.0, -uniforms.camera.direction.x);
+    let camera_right_direction = -cross(uniforms.camera.direction, vec3f(0.0, 1.0, 0.0));
     let camera_up_direction = cross(uniforms.camera.direction, camera_right_direction);
 
     // offset ray origin for defocusing effect
@@ -325,6 +325,7 @@ fn fs_display(
     textureStore(radiance_samples_new, vec2u(pos.xy), color);
 
     return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
+    // return path_traced;
 }
 
 var<private> vertices: array<vec2f, 6> = array<vec2f, 6>(

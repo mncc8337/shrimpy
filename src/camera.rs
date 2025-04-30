@@ -41,7 +41,37 @@ impl Camera {
         }
     }
 
-    pub fn foward(&mut self, ammount: f32) {
+    pub fn get_right_direction(&self) -> Vec3 {
+        let world_up = Vec3::new(0.0, 1.0, 0.0);
+
+        -self.direction.cross(&world_up)
+    }
+
+    pub fn get_up_direction(&self) -> Vec3 {
+        self.direction.cross(&self.get_right_direction())
+    }
+
+    pub fn move_foward(&mut self, ammount: f32) {
         self.position += self.direction * ammount;
+    }
+
+    pub fn move_right(&mut self, ammount: f32) {
+        self.position += self.get_right_direction() * ammount;
+    }
+    
+    pub fn move_up(&mut self, ammount: f32) {
+        self.position += self.get_up_direction() * ammount;
+    }
+
+    // TODO: change this to use an angle instead
+    pub fn pan(&mut self, ammount: f32) {
+        self.direction += self.get_right_direction() * ammount;
+        self.direction = self.direction.normalized();
+    }
+
+    // TODO: change this to use an angle instead
+    pub fn tilt(&mut self, ammount: f32) {
+        self.direction += self.get_up_direction() * ammount;
+        self.direction = self.direction.normalized();
     }
 }

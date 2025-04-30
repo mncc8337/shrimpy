@@ -19,6 +19,7 @@ struct Shrimpy {
     height: u32,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
+    button_state: [bool; 4],
 }
 
 impl ApplicationHandler for Shrimpy {
@@ -65,14 +66,27 @@ impl ApplicationHandler for Shrimpy {
                     MouseScrollDelta::LineDelta(_, y) => y * 0.001,
                 };
                 let _gfx = self.gfx.as_mut().unwrap();
-                _gfx.uniforms.camera.foward(delta);
+                _gfx.uniforms.camera.move_foward(delta);
                 _gfx.render_reset()
             },
             DeviceEvent::Button { button, state } => {
+                self.button_state[button as usize] = state == ElementState::Pressed;
                 if state == ElementState::Pressed && button == 2 {
                     pollster::block_on(async {
                         self.gfx.as_mut().unwrap().save_render().await;
                     });
+                }
+            },
+            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+                let _gfx = self.gfx.as_mut().unwrap();
+                if self.button_state[3] {
+                    _gfx.uniforms.camera.pan(-dx as f32 * 0.004);
+                    _gfx.uniforms.camera.tilt(dy as f32 * 0.004);
+                    _gfx.render_reset()
+                } else if self.button_state[1] {
+                    _gfx.uniforms.camera.move_up(dy as f32 * 0.004);
+                    _gfx.uniforms.camera.move_right(-dx as f32 * 0.004);
+                    _gfx.render_reset()
                 }
             },
             _ => (),
