@@ -66,7 +66,7 @@ impl ApplicationHandler for Shrimpy {
                     MouseScrollDelta::LineDelta(_, y) => y * 0.001,
                 };
                 let _gfx = self.gfx.as_mut().unwrap();
-                _gfx.uniforms.camera.move_foward(delta);
+                _gfx.uniforms.camera.move_foward(-delta);
                 _gfx.render_reset()
             },
             DeviceEvent::Button { button, state } => {

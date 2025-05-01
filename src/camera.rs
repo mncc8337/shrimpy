@@ -28,14 +28,14 @@ impl Camera {
             width: 2.5,
             fov: 75.0 * 0.01745329251,
             focus_distance: 2.0,
-            apeture: 0.02,
+            apeture: 0.12,
             diverge_strength: 0.004,
-            max_ray_bounces: 100,
+            max_ray_bounces: 50,
             _pad0: [0; 2],
             // ^
             position: Vec3::all(0.0),
             _pad1: 0,
-            direction: Vec3::new(0.0, 0.0, 1.0),
+            direction: Vec3::new(0.0, 0.0, -1.0),
             _pad2: 0,
             // ^
         }
