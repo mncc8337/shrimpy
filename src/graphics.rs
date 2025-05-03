@@ -1,25 +1,29 @@
 use {
-    crate::camera::Camera,
+    crate::tracer_struct::{
+        Camera,
+        Material,
+        Scene,
+        Sphere
+    },
     anyhow::Context,
-    chrono::Local,
     bytemuck::{Pod, Zeroable},
+    chrono::Local,
     std::{borrow::Cow, sync::Arc, time::Instant},
     wgpu,
     winit::window::Window
 };
 
-#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+// size 96
 pub struct Uniforms {
     pub camera: Camera,
-    // ^ size 64, align 16
     width: u32,
     height: u32,
     elapsed_seconds: f32,
     frame_count: u32,
     pub gamma_correction: f32,
     _pad0: [u32; 3],
-    // ^ size 32, align 4
 }
 
 pub struct Gfx {
@@ -31,6 +35,10 @@ pub struct Gfx {
 
     pub uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
+
+    pub scene: Scene,
+    material_count: u32,
+    scene_buffer: wgpu::Buffer,
 
     radiance_samples: [wgpu::Texture; 2],
 
@@ -103,6 +111,15 @@ impl Gfx {
             mapped_at_creation: false,
         });
 
+        let scene = Scene::new();
+        let material_count = 0;
+        let scene_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scene"),
+            size: std::mem::size_of::<Scene>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_code)),
@@ -120,6 +137,7 @@ impl Gfx {
             &bind_group_layout,
             &radiance_samples,
             &uniform_buffer,
+            &scene_buffer,
         );
 
         Self {
@@ -131,6 +149,10 @@ impl Gfx {
 
             uniforms,
             uniform_buffer,
+
+            scene,
+            material_count,
+            scene_buffer,
 
             radiance_samples,
 
@@ -160,6 +182,18 @@ impl Gfx {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: true,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float {
                             filterable: false,
@@ -170,7 +204,7 @@ impl Gfx {
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
@@ -224,6 +258,7 @@ impl Gfx {
         layout: &wgpu::BindGroupLayout,
         textures: &[wgpu::Texture; 2],
         uniform_buffer: &wgpu::Buffer,
+        scene_buffer: &wgpu::Buffer,
     ) -> [wgpu::BindGroup; 2] {
         let views = [
             textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
@@ -246,10 +281,18 @@ impl Gfx {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&views[0]),
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: scene_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&views[0]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: wgpu::BindingResource::TextureView(&views[1]),
                     },
                 ],
@@ -270,10 +313,18 @@ impl Gfx {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&views[1]),
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: scene_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&views[1]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: wgpu::BindingResource::TextureView(&views[0]),
                     },
                 ],
@@ -300,6 +351,26 @@ impl Gfx {
         };
 
         [device.create_texture(desc), device.create_texture(desc)]
+    }
+
+    pub fn scene_add_material(&mut self, material: Material) -> u32 {
+        self.scene.materials[self.material_count as usize] = material;
+        self.material_count += 1;
+        
+        self.material_count - 1
+    }
+
+    pub fn scene_add_sphere(&mut self, sphere: Sphere) {
+        self.scene.spheres[self.scene.sphere_count as usize] = sphere;
+        self.scene.sphere_count += 1;
+    }
+
+    pub fn scene_update(&self) {
+        self.queue.write_buffer(
+            &self.scene_buffer,
+            0,
+            bytemuck::bytes_of(&self.scene)
+        );
     }
 
     pub fn render_reset(&mut self) {

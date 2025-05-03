@@ -3,8 +3,8 @@ use {
     std::ops,
 };
 
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,

@@ -1,22 +1,31 @@
 mod vec3;
-mod camera;
+mod tracer_struct;
 mod graphics;
 
 use {
-    anyhow::Result, graphics::Gfx, std::sync::Arc, winit::{
+    anyhow::Result,
+    graphics::Gfx,
+    std::sync::Arc,
+    winit::{
         application::ApplicationHandler,
         event::{
-            DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent
+            DeviceEvent,
+            DeviceId,
+            ElementState,
+            MouseScrollDelta,
+            WindowEvent
         },
         event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
         window::{Window, WindowId}
-    }
+    },
+    crate::vec3::Vec3,
+    crate::tracer_struct::{Material, Sphere},
 };
 
-#[derive(Default)]
 struct Shrimpy {
     width: u32,
     height: u32,
+    gfx_callback: fn(&mut Gfx),
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     button_state: [bool; 4],
@@ -41,6 +50,8 @@ impl ApplicationHandler for Shrimpy {
 
         self.window = Some(window);
         self.gfx = Some(gfx);
+
+        (self.gfx_callback)(self.gfx.as_mut().unwrap());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -94,6 +105,19 @@ impl ApplicationHandler for Shrimpy {
     }
 }
 
+fn scene_build(gfx: &mut Gfx) {
+    let mut material1 = Material::new();
+    material1.color = Vec3::new(0.3, 0.2, 0.9);
+
+    let mut sphere1 = Sphere::new();
+    sphere1.center = Vec3::new(0.0, 0.0, -3.0);
+    sphere1.radius = 1.0;
+    sphere1.material_id = gfx.scene_add_material(material1);
+    gfx.scene_add_sphere(sphere1);
+
+    gfx.scene_update();
+}
+
 fn main() -> Result<()> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -101,8 +125,12 @@ fn main() -> Result<()> {
     let mut app = Shrimpy {
         width: 800,
         height: 600,
-        ..Default::default()
+        gfx_callback: scene_build,
+        window: None,
+        gfx: None,
+        button_state: [false; 4],
     };
+
     event_loop.run_app(&mut app)?;
 
     Ok(())
