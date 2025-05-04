@@ -1,12 +1,13 @@
 mod vec3;
 mod tracer_struct;
 mod graphics;
+mod file_load;
 
 use {
-    anyhow::Result,
-    graphics::Gfx,
-    std::sync::Arc,
-    winit::{
+    crate::{
+        tracer_struct::{Material, Sphere, Triangle},
+        vec3::Vec3
+    }, anyhow::Result, file_load::load_mesh_from, graphics::Gfx, std::sync::Arc, winit::{
         application::ApplicationHandler,
         event::{
             DeviceEvent,
@@ -17,9 +18,7 @@ use {
         },
         event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
         window::{Window, WindowId}
-    },
-    crate::vec3::Vec3,
-    crate::tracer_struct::{Material, Sphere},
+    }
 };
 
 struct Shrimpy {
@@ -76,9 +75,10 @@ impl ApplicationHandler for Shrimpy {
                     MouseScrollDelta::PixelDelta(delta) => 0.001 * delta.y as f32,
                     MouseScrollDelta::LineDelta(_, y) => y * 0.001,
                 };
-                let _gfx = self.gfx.as_mut().unwrap();
-                _gfx.uniforms.camera.move_foward(-delta);
-                _gfx.render_reset()
+                let gfx = self.gfx.as_mut().unwrap();
+                let camera = gfx.get_camera();
+                camera.move_foward(-delta);
+                gfx.render_reset()
             },
             DeviceEvent::Button { button, state } => {
                 self.button_state[button as usize] = state == ElementState::Pressed;
@@ -89,15 +89,16 @@ impl ApplicationHandler for Shrimpy {
                 }
             },
             DeviceEvent::MouseMotion { delta: (dx, dy) } => {
-                let _gfx = self.gfx.as_mut().unwrap();
+                let gfx = self.gfx.as_mut().unwrap();
+                let camera = gfx.get_camera();
                 if self.button_state[3] {
-                    _gfx.uniforms.camera.pan(-dx as f32 * 0.004);
-                    _gfx.uniforms.camera.tilt(dy as f32 * 0.004);
-                    _gfx.render_reset()
+                    camera.pan(-dx as f32 * 0.004);
+                    camera.tilt(dy as f32 * 0.004);
+                    gfx.render_reset()
                 } else if self.button_state[1] {
-                    _gfx.uniforms.camera.move_up(dy as f32 * 0.004);
-                    _gfx.uniforms.camera.move_right(-dx as f32 * 0.004);
-                    _gfx.render_reset()
+                    camera.move_up(dy as f32 * 0.004);
+                    camera.move_right(-dx as f32 * 0.004);
+                    gfx.render_reset()
                 }
             },
             _ => (),
@@ -106,16 +107,48 @@ impl ApplicationHandler for Shrimpy {
 }
 
 fn scene_build(gfx: &mut Gfx) {
-    let mut material1 = Material::new();
-    material1.color = Vec3::new(0.3, 0.2, 0.9);
+    // materials
+    let mut ground_mat = Material::default();
+    ground_mat.color = Vec3::new(217.0, 177.0, 104.0) / 255.0;
 
-    let mut sphere1 = Sphere::new();
-    sphere1.center = Vec3::new(0.0, 0.0, -3.0);
-    sphere1.radius = 1.0;
-    sphere1.material_id = gfx.scene_add_material(material1);
-    gfx.scene_add_sphere(sphere1);
+    let mut transparent_mat = Material::default();
+    transparent_mat.roughness_or_ior = -1.77;
+    let trans_mat_id = gfx.scene_add_material(transparent_mat);
+
+    // scene
+    let mut ground = load_mesh_from(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plane.obj"),
+        gfx.scene_add_material(ground_mat),
+    );
+    for tri in ground.iter_mut() {
+        tri.vertex_0 *= 5.0;
+        tri.vertex_1 *= 5.0;
+        tri.vertex_2 *= 5.0;
+    }
+    gfx.scene_add_triangles(&ground);
+
+    let mut dodec = load_mesh_from(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/dodecahedron.obj"),
+        trans_mat_id,
+    );
+    for tri in dodec.iter_mut() {
+        tri.vertex_0 += Vec3::new(0.0, 1.0, 0.0);
+        tri.vertex_1 += Vec3::new(0.0, 1.0, 0.0);
+        tri.vertex_2 += Vec3::new(0.0, 1.0, 0.0);
+    }
+    gfx.scene_add_triangles(&dodec);
+
+    let mut sphere = Sphere::default();
+    sphere.center = Vec3::new(2.5, 1.0, 0.0);
+    sphere.material_id = trans_mat_id;
+    gfx.scene_add_sphere(sphere);
 
     gfx.scene_update();
+
+    // camera
+    let camera = gfx.get_camera();
+    camera.max_ray_bounces = 100;
+    camera.position = Vec3::new(0.0, 1.5, 2.0);
 }
 
 fn main() -> Result<()> {

@@ -2,8 +2,12 @@ const FLOAT_MAX: f32 = 3.40282346638528859812e+38;
 const EPSILON: f32 = 0.0005;
 const PI: f32 = 3.14159265358;
 
-fn equal_zero(a: f32) -> bool {
-    return abs(a) < EPSILON;
+fn is_equal_zero(a: f32) -> bool {
+    return abs(a) <= EPSILON;
+}
+
+fn is_equal(a: f32, b: f32) -> bool  {
+    return abs(a - b) <= EPSILON;
 }
 
 // a slightly modified version of the "One-at-a-Time Hash" function by Bob Jenkins
@@ -98,8 +102,8 @@ fn rand_polygon(n: i32) -> vec2f {
 struct Camera {
     position: vec3f,
     direction: vec3f,
-    width: f32,
     fov: f32,
+    width: f32,
     focus_distance: f32,
     apeture: f32,
     diverge_strength: f32,
@@ -119,10 +123,17 @@ struct Sphere {
     material_id: u32,
 }
 
+struct Triangle {
+    vertices: array<vec3f, 3>,
+    material_id: u32,
+}
+
 struct Scene {
     materials: array<Material, 64>,
     spheres: array<Sphere, 64>,
+    triangles: array<Triangle, 256>,
     sphere_count: u32,
+    triangle_count: u32,
 }
 
 struct Uniforms {
@@ -149,6 +160,7 @@ struct HitInfo {
     point: vec3f,
     normal: vec3f,
     material_id: u32,
+    front_face: bool,
 }
 
 fn sky_color(ray: Ray) -> vec3f {
@@ -160,7 +172,7 @@ fn sky_color(ray: Ray) -> vec3f {
 fn new_ray(pos: vec4f) -> Ray {
     let aspect_ratio = f32(uniforms.width) / f32(uniforms.height);
 
-    let camera_right_direction = -cross(uniforms.camera.direction, vec3f(0.0, 1.0, 0.0));
+    var camera_right_direction = normalize(-cross(uniforms.camera.direction, vec3f(0.0, 1.0, 0.0)));
     let camera_up_direction = cross(uniforms.camera.direction, camera_right_direction);
 
     // offset ray origin for defocusing effect
@@ -198,9 +210,11 @@ fn intersect_sphere(ray: Ray, sphere: Sphere) -> HitInfo {
 
     let dsc = b * b - a * c;
 
+    hit.front_face = c > 0;
+
     // if the ray origin is on (or very near) the sphere surface
     // and is going outward then there must be no hit
-    if equal_zero(c) && b >= 0 {
+    if is_equal_zero(c) && b >= 0 {
         return hit;
     }
 
@@ -213,14 +227,62 @@ fn intersect_sphere(ray: Ray, sphere: Sphere) -> HitInfo {
     let t1 = (-b - sqrt_dsc) * recip_a;
     let t2 = (-b + sqrt_dsc) * recip_a;
     hit.distance = select(t1, t2, t1 <= EPSILON);
-    if hit.distance <= EPSILON {
-        hit.distance = -100.0;
+    if hit.distance < EPSILON {
+        hit.distance = -1.0;
         return hit;
     }
 
     hit.point = ray.origin + ray.direction * hit.distance;
     hit.normal = (hit.point - sphere.center) / sphere.radius;
+    if !hit.front_face {
+        hit.normal *= -1.0;
+    }
     hit.material_id = sphere.material_id;
+
+    return hit;
+}
+
+fn intersect_triangle(ray: Ray, tri: Triangle) -> HitInfo {
+    var hit: HitInfo;
+    hit.distance = -1.0;
+
+    let edge0 = tri.vertices[1] - tri.vertices[0];
+    let edge1 = tri.vertices[2] - tri.vertices[0];
+    let h = cross(ray.direction, edge1);
+    let det = dot(edge0, h);
+
+    if is_equal_zero(det) {
+        return hit; // ray is parallel to triangle
+    }
+
+    let recip_det = 1.0 / det;
+    let s = ray.origin - tri.vertices[0];
+    let u = recip_det * dot(s, h);
+
+    if u < 0.0 || u > 1.0 {
+        return hit;
+    }
+
+    let q = cross(s, edge0);
+    let v = recip_det * dot(ray.direction, q);
+
+    if v < 0.0 || (u + v) > 1.0 {
+        return hit;
+    }
+
+    let t = recip_det * dot(edge1, q);
+    if t < EPSILON {
+        return hit; // triangle is behind the ray
+    }
+
+    hit.distance = t;
+    hit.point = ray.origin + ray.direction * t;
+    hit.normal = normalize(cross(edge0, edge1));
+    hit.front_face = dot(ray.direction, hit.normal) < 0.0;
+    if !hit.front_face {
+        hit.normal *= -1.0;
+    }
+    hit.material_id = tri.material_id;
 
     return hit;
 }
@@ -229,8 +291,21 @@ fn get_ray_collision(ray: Ray) -> HitInfo {
     var closest_hit: HitInfo;
     closest_hit.distance = FLOAT_MAX;
 
+    // sphere
     for(var i = 0u; i < scene.sphere_count; i += 1u) {
         let hit = intersect_sphere(ray, scene.spheres[i]);
+        if hit.distance < EPSILON {
+            continue;
+        }
+
+        if hit.distance < closest_hit.distance {
+            closest_hit = hit;
+        }
+    }
+
+    // triangle
+    for(var i = 0u; i < scene.triangle_count; i += 1u) {
+        let hit = intersect_triangle(ray, scene.triangles[i]);
         if hit.distance < EPSILON {
             continue;
         }
@@ -269,8 +344,6 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
     var bounces = 0u;
     while bounces < uniforms.camera.max_ray_bounces {
         let hit = get_ray_collision(ray);
-        let hit_inside = dot(ray.direction, hit.normal) > EPSILON;
-        let normal = select(hit.normal, -hit.normal, hit_inside);
 
         if hit.distance < EPSILON {
             incomming_light += ray_color * sky_color(ray);
@@ -296,9 +369,13 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
         }
 
         if material.volume_density < 1.0 {
-            if hit_inside{
+            if !hit.front_face {
                 surrounding_volume_density -= material.volume_density;
                 surrounding_volume_radiance -= material.emission_strength * material.color;
+                if is_equal_zero(surrounding_volume_density) {
+                    surrounding_volume_density = 0.0;
+                    surrounding_volume_radiance = vec3f(0.0);
+                }
             } else {
                 surrounding_volume_density += material.volume_density;
                 surrounding_volume_radiance += material.emission_strength * material.color;
@@ -308,26 +385,26 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
             continue;
         }
 
-        if material.roughness_or_ior >= 0.0 {
+        if material.roughness_or_ior > 0.0 {
             // calculate scattering direction
-            let diffuse_direction = normalize(normal + (1.0 - EPSILON) * rand_sphere());
-            let specular_direction = reflect(ray.direction, normal);
+            let diffuse_direction = normalize(hit.normal + (1.0 - EPSILON) * rand_sphere());
+            let specular_direction = reflect(ray.direction, hit.normal);
             ray.direction = mix(specular_direction, diffuse_direction, material.roughness_or_ior);
         } else {
-            let cos_theta = abs(dot(ray.direction, normal));
+            let cos_theta = abs(dot(ray.direction, hit.normal));
 
-            let ior = -select(material.roughness_or_ior, 1.0 / material.roughness_or_ior, !hit_inside);
+            let ior = -select(material.roughness_or_ior, 1.0 / material.roughness_or_ior, hit.front_face);
             let cannot_refract = ior * ior * (1.0 - cos_theta * cos_theta) > 1.0;
 
             if cannot_refract {
-                ray.direction = reflect(ray.direction, normal);
+                ray.direction = reflect(ray.direction, hit.normal);
             } else {
-                ray.direction = refract(ray.direction, normal, ior);
+                ray.direction = refract(ray.direction, hit.normal, ior);
             }
         }
         ray.origin = hit.point + ray.direction * EPSILON;
 
-        // ray_color *= normal * 0.5 + vec3f(0.5);
+        // ray_color *= hit.normal * 0.5 + vec3f(0.5);
         ray_color *= material.color;
         incomming_light += ray_color * material.emission_strength;
 

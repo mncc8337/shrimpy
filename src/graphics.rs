@@ -3,7 +3,8 @@ use {
         Camera,
         Material,
         Scene,
-        Sphere
+        Sphere,
+        Triangle,
     },
     anyhow::Context,
     bytemuck::{Pod, Zeroable},
@@ -33,7 +34,7 @@ pub struct Gfx {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    pub uniforms: Uniforms,
+    uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
 
     pub scene: Scene,
@@ -365,12 +366,23 @@ impl Gfx {
         self.scene.sphere_count += 1;
     }
 
+    pub fn scene_add_triangles(&mut self, triangles: &[Triangle]) {
+        for tri in triangles.iter() {
+            self.scene.triangles[self.scene.triangle_count as usize] = *tri;
+            self.scene.triangle_count += 1;
+        }
+    }
+
     pub fn scene_update(&self) {
         self.queue.write_buffer(
             &self.scene_buffer,
             0,
             bytemuck::bytes_of(&self.scene)
         );
+    }
+
+    pub fn get_camera(&mut self) -> &mut Camera {
+        &mut self.uniforms.camera
     }
 
     pub fn render_reset(&mut self) {
