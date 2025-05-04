@@ -172,8 +172,8 @@ fn sky_color(ray: Ray) -> vec3f {
 fn new_ray(pos: vec4f) -> Ray {
     let aspect_ratio = f32(uniforms.width) / f32(uniforms.height);
 
-    var camera_right_direction = normalize(-cross(uniforms.camera.direction, vec3f(0.0, 1.0, 0.0)));
-    let camera_up_direction = cross(uniforms.camera.direction, camera_right_direction);
+    var camera_right_direction = -normalize(cross(uniforms.camera.direction, vec3f(0.0, 1.0, 0.0)));
+    let camera_up_direction = normalize(cross(uniforms.camera.direction, camera_right_direction));
 
     // offset ray origin for defocusing effect
     // note that the jitter is in a circle pattern
@@ -186,7 +186,7 @@ fn new_ray(pos: vec4f) -> Ray {
 
     // random jitter for anti-aliasing
     let jitter = rand_circle() * uniforms.camera.diverge_strength;
-    var uv = pos.xyz / vec3f(f32(uniforms.width - 1), f32(uniforms.height - 1), 0.0);
+    var uv = pos.xyz / vec3f(f32(uniforms.width - 1), f32(uniforms.height - 1), 1.0);
     uv = (2.0 * uv - vec3f(1.0)) * vec3f(aspect_ratio, -1.0, 0.0);
     uv = camera_up_direction * (uv.y + jitter.y) + camera_right_direction * (uv.x + jitter.x);
     
@@ -246,43 +246,72 @@ fn intersect_triangle(ray: Ray, tri: Triangle) -> HitInfo {
     var hit: HitInfo;
     hit.distance = -1.0;
 
-    let edge0 = tri.vertices[1] - tri.vertices[0];
-    let edge1 = tri.vertices[2] - tri.vertices[0];
-    let h = cross(ray.direction, edge1);
-    let det = dot(edge0, h);
+    var edge0 = tri.vertices[1] - tri.vertices[0];
+    var edge1 = tri.vertices[2] - tri.vertices[0];
 
-    if is_equal_zero(det) {
+    var normal = cross(edge0, edge1);
+    var determinant = -dot(ray.direction, normal);
+
+    hit.front_face = true;
+
+    if is_equal_zero(determinant) {
         return hit; // ray is parallel to triangle
     }
 
-    let recip_det = 1.0 / det;
-    let s = ray.origin - tri.vertices[0];
-    let u = recip_det * dot(s, h);
+    if determinant < 0.0 {
+        // hit back face
+        let material = scene.materials[tri.material_id];
+        // if material.roughness_or_ior >= 0.0 || material.volume_density >= 1.0 {
+        //     return hit;
+        // }
 
-    if u < 0.0 || u > 1.0 {
+        let temp = edge0;
+        edge0 = edge1;
+        edge1 = temp;
+
+        hit.front_face = false;
+        normal *= -1.0;
+        determinant *= -1.0;
+    }
+
+    let inv_det = 1.0 / determinant;
+    let ao = ray.origin - tri.vertices[0];
+
+    let dst = dot(ao, normal) * inv_det;
+    if dst < EPSILON {
         return hit;
     }
 
-    let q = cross(s, edge0);
-    let v = recip_det * dot(ray.direction, q);
+    let dao = cross(ao, ray.direction);
 
-    if v < 0.0 || (u + v) > 1.0 {
+    let u = dot(edge1, dao) * inv_det;
+    if u < 0.0 {
         return hit;
     }
 
-    let t = recip_det * dot(edge1, q);
-    if t < EPSILON {
-        return hit; // triangle is behind the ray
+    let v = -dot(edge0, dao) * inv_det;
+    if v < 0.0 {
+        return hit;
     }
 
-    hit.distance = t;
-    hit.point = ray.origin + ray.direction * t;
-    hit.normal = normalize(cross(edge0, edge1));
-    hit.front_face = dot(ray.direction, hit.normal) < 0.0;
-    if !hit.front_face {
-        hit.normal *= -1.0;
+    let w = 1.0 - u - v;
+    if w < 0.0 {
+        return hit;
     }
+
+    hit.point = ray.origin + ray.direction * dst;
+    hit.normal = normalize(normal);
+    hit.distance = dst;
     hit.material_id = tri.material_id;
+
+    // if calculate_uv {
+    //     let vt1 = tri.vert_texture[0];
+    //     let vt2 = tri.vert_texture[1];
+    //     let vt3 = tri.vert_texture[2];
+    //     let coord = w * vt1 + u * vt2 + v * vt3;
+    //     h.u = coord.x;
+    //     h.v = coord.y;
+    // }
 
     return hit;
 }
@@ -402,7 +431,7 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
                 ray.direction = refract(ray.direction, hit.normal, ior);
             }
         }
-        ray.origin = hit.point + ray.direction * EPSILON;
+        ray.origin = hit.point + ray.direction * EPSILON * 2;
 
         // ray_color *= hit.normal * 0.5 + vec3f(0.5);
         ray_color *= material.color;

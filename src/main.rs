@@ -110,6 +110,8 @@ fn scene_build(gfx: &mut Gfx) {
     // materials
     let mut ground_mat = Material::default();
     ground_mat.color = Vec3::new(217.0, 177.0, 104.0) / 255.0;
+    ground_mat.roughness_or_ior = 1.0;
+    let ground_mat_id = gfx.scene_add_material(ground_mat);
 
     let mut transparent_mat = Material::default();
     transparent_mat.roughness_or_ior = -1.77;
@@ -118,7 +120,7 @@ fn scene_build(gfx: &mut Gfx) {
     // scene
     let mut ground = load_mesh_from(
         concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plane.obj"),
-        gfx.scene_add_material(ground_mat),
+        ground_mat_id,
     );
     for tri in ground.iter_mut() {
         tri.vertex_0 *= 5.0;
@@ -127,27 +129,34 @@ fn scene_build(gfx: &mut Gfx) {
     }
     gfx.scene_add_triangles(&ground);
 
+    let mut sphere1 = Sphere::default();
+    sphere1.center = Vec3::new(2.5, 1.0, 0.0);
+    sphere1.material_id = trans_mat_id;
+    sphere1.radius = 0.7;
+    gfx.scene_add_sphere(sphere1);
+
+    let mut sphere2 = Sphere::default();
+    sphere2.center = Vec3::new(1.5, 1.0, -2.0);
+    sphere2.material_id = ground_mat_id;
+    gfx.scene_add_sphere(sphere2);
+
     let mut dodec = load_mesh_from(
         concat!(env!("CARGO_MANIFEST_DIR"), "/assets/dodecahedron.obj"),
         trans_mat_id,
     );
     for tri in dodec.iter_mut() {
-        tri.vertex_0 += Vec3::new(0.0, 1.0, 0.0);
-        tri.vertex_1 += Vec3::new(0.0, 1.0, 0.0);
-        tri.vertex_2 += Vec3::new(0.0, 1.0, 0.0);
+        tri.vertex_0 += Vec3::new(0.0, 1.35, 0.0);
+        tri.vertex_1 += Vec3::new(0.0, 1.35, 0.0);
+        tri.vertex_2 += Vec3::new(0.0, 1.35, 0.0);
     }
     gfx.scene_add_triangles(&dodec);
-
-    let mut sphere = Sphere::default();
-    sphere.center = Vec3::new(2.5, 1.0, 0.0);
-    sphere.material_id = trans_mat_id;
-    gfx.scene_add_sphere(sphere);
 
     gfx.scene_update();
 
     // camera
     let camera = gfx.get_camera();
-    camera.max_ray_bounces = 100;
+    camera.max_ray_bounces = 1000;
+    camera.apeture = 0.0;
     camera.position = Vec3::new(0.0, 1.5, 2.0);
 }
 

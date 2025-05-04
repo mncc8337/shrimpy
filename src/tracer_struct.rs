@@ -38,11 +38,11 @@ impl Camera {
     pub fn get_right_direction(&self) -> Vec3 {
         let world_up = Vec3::new(0.0, 1.0, 0.0);
 
-        -self.direction.cross(&world_up)
+        -self.direction.cross(&world_up).normalized()
     }
 
     pub fn get_up_direction(&self) -> Vec3 {
-        self.direction.cross(&self.get_right_direction())
+        self.direction.cross(&self.get_right_direction()).normalized()
     }
 
     pub fn move_foward(&mut self, ammount: f32) {
@@ -142,8 +142,9 @@ pub struct Triangle {
     pub vertex_1: Vec3,
     _pad1: u32,
     pub vertex_2: Vec3,
+    _pad2: u32,
     pub material_id: u32,
-    _pad2: [u32; 4],
+    _pad3: [u32; 3],
 }
 
 impl Triangle {
@@ -154,8 +155,9 @@ impl Triangle {
             vertex_1: vertices[1],
             _pad1: 0,
             vertex_2: vertices[2],
+            _pad2: 0,
             material_id,
-            _pad2: [0; 4],
+            _pad3: [0; 3],
         }
     }
 
@@ -166,8 +168,9 @@ impl Triangle {
             vertex_1: Vec3::zero(),
             _pad1: 0,
             vertex_2: Vec3::zero(),
+            _pad2: 0,
             material_id: 0,
-            _pad2: [0; 4],
+            _pad3: [0; 3],
         }
     }
 }
