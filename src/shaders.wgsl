@@ -128,12 +128,22 @@ struct Triangle {
     material_id: u32,
 }
 
+struct BVHNode {
+    bbox_min: vec3f,
+    child1: u32,
+    bbox_max: vec3f,
+    child2: u32,
+    triangle_count: u32,
+    triangle_ids: array<u32, 4>,
+}
+
 struct Scene {
     materials: array<Material, 64>,
     spheres: array<Sphere, 64>,
     triangles: array<Triangle, 256>,
     sphere_count: u32,
     triangle_count: u32,
+    bvh: array<BVHNode, 96>,
 }
 
 struct Uniforms {
@@ -260,7 +270,7 @@ fn intersect_triangle(ray: Ray, tri: Triangle) -> HitInfo {
 
     if determinant < 0.0 {
         // hit back face
-        let material = scene.materials[tri.material_id];
+        // let material = scene.materials[tri.material_id];
         // if material.roughness_or_ior >= 0.0 || material.volume_density >= 1.0 {
         //     return hit;
         // }
@@ -316,6 +326,69 @@ fn intersect_triangle(ray: Ray, tri: Triangle) -> HitInfo {
     return hit;
 }
 
+fn intersect_aabb(ray: Ray, box_min: vec3f, box_max: vec3f) -> bool {
+    let inv_dir = 1.0 / ray.direction;
+    let t_min = (box_min - ray.origin) * inv_dir;
+    let t_max = (box_max - ray.origin) * inv_dir;
+
+    let t1 = vec3f(min(t_min.x, t_max.x), min(t_min.y, t_max.y), min(t_min.z, t_max.z));
+    let t2 = vec3f(max(t_min.x, t_max.x), max(t_min.y, t_max.y), max(t_min.z, t_max.z));
+
+    let t_near = max(max(t1.x, t1.y), t1.z);
+    let t_far = min(min(t2.x, t2.y), t2.z);
+
+    return t_near <= t_far;
+}
+
+fn intersect_bvh(ray: Ray) -> HitInfo {
+    var hit: HitInfo;
+    hit.distance = FLOAT_MAX;
+    var stack: array<u32, 64>;
+    var stack_ptr = 1u;
+    stack[0] = 0;
+
+    while stack_ptr > 0u {
+        stack_ptr -= 1u;
+        let node_index = stack[stack_ptr];
+        let node = scene.bvh[node_index];
+
+        if !intersect_aabb(ray, node.bbox_min, node.bbox_max) {
+            continue;
+        }
+
+        if node.triangle_count != 0u {
+            // leaf node: test all triangles
+            for (var i = 0u; i < node.triangle_count; i += 1u) {
+                let tri_id = node.triangle_ids[i];
+                let tri = scene.triangles[tri_id];
+                let h = intersect_triangle(ray, tri);
+                if h.distance >= EPSILON && h.distance < hit.distance {
+                    hit = h;
+                }
+            }
+        } else {
+            // internal node: push children
+            stack[stack_ptr] = node.child1;
+            stack_ptr += 1u;
+            if stack_ptr >= 64 {
+                return hit;
+            }
+
+            stack[stack_ptr] = node.child2;
+            stack_ptr += 1u;
+            if stack_ptr >= 64 {
+                return hit;
+            }
+        }
+    }
+
+    if hit.distance == FLOAT_MAX {
+        hit.distance = -1.0;
+    }
+
+    return hit;
+}
+
 fn get_ray_collision(ray: Ray) -> HitInfo {
     var closest_hit: HitInfo;
     closest_hit.distance = FLOAT_MAX;
@@ -323,24 +396,23 @@ fn get_ray_collision(ray: Ray) -> HitInfo {
     // sphere
     for(var i = 0u; i < scene.sphere_count; i += 1u) {
         let hit = intersect_sphere(ray, scene.spheres[i]);
-        if hit.distance < EPSILON {
-            continue;
-        }
-
-        if hit.distance < closest_hit.distance {
+        if hit.distance >= EPSILON && hit.distance < closest_hit.distance {
             closest_hit = hit;
         }
     }
 
-    // triangle
-    for(var i = 0u; i < scene.triangle_count; i += 1u) {
-        let hit = intersect_triangle(ray, scene.triangles[i]);
-        if hit.distance < EPSILON {
-            continue;
+    // use linear search if tris count is low
+    if scene.triangle_count < 16 {
+        for(var i = 0u; i < scene.triangle_count; i += 1u) {
+            let hit = intersect_triangle(ray, scene.triangles[i]);
+            if hit.distance >= EPSILON && hit.distance < closest_hit.distance {
+                closest_hit = hit;
+            }
         }
-
-        if hit.distance < closest_hit.distance {
-            closest_hit = hit;
+    } else {
+        let bvh_hit = intersect_bvh(ray);
+        if bvh_hit.distance >= EPSILON && bvh_hit.distance < closest_hit.distance {
+            closest_hit = bvh_hit;
         }
     }
 
@@ -431,7 +503,7 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
                 ray.direction = refract(ray.direction, hit.normal, ior);
             }
         }
-        ray.origin = hit.point + ray.direction * EPSILON * 2;
+        ray.origin = hit.point + ray.direction * EPSILON;
 
         // ray_color *= hit.normal * 0.5 + vec3f(0.5);
         ray_color *= material.color;
@@ -448,6 +520,7 @@ fn fs_display(
     @builtin(position) pos: vec4f,
 ) -> @location(0) vec4f {
 
+
     init_rng(vec2u(pos.xy));
 
     // load previous progress
@@ -463,8 +536,9 @@ fn fs_display(
     color += path_traced;
     textureStore(radiance_samples_new, vec2u(pos.xy), color);
 
-    return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
+    // return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
     // return pow(path_traced, vec4f(1.0 / uniforms.gamma_correction));
+    return path_traced;
 }
 
 var<private> vertices: array<vec2f, 6> = array<vec2f, 6>(

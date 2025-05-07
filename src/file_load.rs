@@ -34,17 +34,17 @@ pub fn load_mesh_from(filename: &str, material_id: u32) -> Vec<Triangle> {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 3 {
                 let mut v = Vec3::zero();
-                v.x = 1.0 - f32::from_str(parts[1]).unwrap_or(0.0);
-                v.y = 1.0 - f32::from_str(parts[2]).unwrap_or(0.0);
+                v[0] = 1.0 - f32::from_str(parts[1]).unwrap_or(0.0);
+                v[1] = 1.0 - f32::from_str(parts[2]).unwrap_or(0.0);
                 texs.push(v);
             }
         } else if trimmed.starts_with('v') {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 4 {
                 let mut v = Vec3::zero();
-                v.x = f32::from_str(parts[1]).unwrap_or(0.0);
-                v.y = f32::from_str(parts[2]).unwrap_or(0.0);
-                v.z = f32::from_str(parts[3]).unwrap_or(0.0);
+                v[0] = f32::from_str(parts[1]).unwrap_or(0.0);
+                v[1] = f32::from_str(parts[2]).unwrap_or(0.0);
+                v[2] = f32::from_str(parts[3]).unwrap_or(0.0);
                 verts.push(v);
             }
         } else if trimmed.starts_with('f') {

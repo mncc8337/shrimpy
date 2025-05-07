@@ -5,6 +5,7 @@ use {
         Scene,
         Sphere,
         Triangle,
+        BVHNode,
     },
     anyhow::Context,
     bytemuck::{Pod, Zeroable},
@@ -373,7 +374,9 @@ impl Gfx {
         }
     }
 
-    pub fn scene_update(&self) {
+    pub fn scene_update(&mut self) {
+        self.scene_build();
+
         self.queue.write_buffer(
             &self.scene_buffer,
             0,
@@ -515,5 +518,15 @@ impl Gfx {
         img.write_to(&mut writer, image::ImageFormat::Png).unwrap();
 
         println!("image saved");
+    }
+
+    fn scene_build(&mut self) {
+        let mut tri_indices: Vec<usize> = (0..self.scene.triangle_count as usize).collect();
+        let mut tmp_bvh = Vec::new();
+        BVHNode::bvh_build(&mut self.scene.triangles, &mut tri_indices, &mut tmp_bvh, 8);
+
+        for (i, node) in tmp_bvh.iter().take(96).enumerate() {
+            self.scene.bvh[i] = node.clone();
+        }
     }
 }

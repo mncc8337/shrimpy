@@ -5,7 +5,7 @@ mod file_load;
 
 use {
     crate::{
-        tracer_struct::{Material, Sphere, Triangle},
+        tracer_struct::{Material, Sphere, BVHNode},
         vec3::Vec3
     }, anyhow::Result, file_load::load_mesh_from, graphics::Gfx, std::sync::Arc, winit::{
         application::ApplicationHandler,
@@ -106,6 +106,26 @@ impl ApplicationHandler for Shrimpy {
     }
 }
 
+fn print_bvh(bvh: &[BVHNode], current_node_id: usize, level: u32) {
+    for _ in 0..level {
+        print!("    ");
+    }
+    print!("node {} ", current_node_id);
+
+    let current_node = &bvh[current_node_id];
+    if current_node.triangle_count != 0 {
+        print!("-> ");
+        for i in 0..current_node.triangle_count {
+            print!("{} ", current_node.triangle_ids[i as usize]);
+        }
+        print!("\n");
+    } else {
+        print!("\n");
+        print_bvh(bvh, current_node.child1 as usize, level + 1);
+        print_bvh(bvh, current_node.child2 as usize, level + 1);
+    }
+}
+
 fn scene_build(gfx: &mut Gfx) {
     // materials
     let mut ground_mat = Material::default();
@@ -114,7 +134,7 @@ fn scene_build(gfx: &mut Gfx) {
     let ground_mat_id = gfx.scene_add_material(ground_mat);
 
     let mut transparent_mat = Material::default();
-    transparent_mat.roughness_or_ior = -1.77;
+    transparent_mat.roughness_or_ior = -1.33;
     let trans_mat_id = gfx.scene_add_material(transparent_mat);
 
     // scene
@@ -151,11 +171,29 @@ fn scene_build(gfx: &mut Gfx) {
     }
     gfx.scene_add_triangles(&dodec);
 
+    for tri in dodec.iter_mut() {
+        tri.vertex_0 += Vec3::new(0.0, 3.35, 0.0);
+        tri.vertex_1 += Vec3::new(0.0, 3.35, 0.0);
+        tri.vertex_2 += Vec3::new(0.0, 3.35, 0.0);
+    }
+    gfx.scene_add_triangles(&dodec);
+
+    for tri in dodec.iter_mut() {
+        tri.vertex_0 += Vec3::new(4.0, 3.35, 0.0);
+        tri.vertex_1 += Vec3::new(4.0, 3.35, 0.0);
+        tri.vertex_2 += Vec3::new(4.0, 3.35, 0.0);
+    }
+    gfx.scene_add_triangles(&dodec);
+
+
     gfx.scene_update();
+
+    println!("bvh tree layout");
+    print_bvh(gfx.scene.bvh.as_ref(), 0, 0);
 
     // camera
     let camera = gfx.get_camera();
-    camera.max_ray_bounces = 1000;
+    camera.max_ray_bounces = 25;
     camera.apeture = 0.0;
     camera.position = Vec3::new(0.0, 1.5, 2.0);
 }

@@ -1,15 +1,10 @@
 use {
-    bytemuck::{Pod, Zeroable},
-    std::ops,
+    bytemuck::{Pod, Zeroable}, core::f32, std::ops
 };
 
-#[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct Vec3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
+#[repr(C)]
+pub struct Vec3([f32; 3]);
 
 impl Default for Vec3 {
     fn default() -> Self {
@@ -19,15 +14,30 @@ impl Default for Vec3 {
 
 impl Vec3 {
     pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
-        Vec3 {x, y, z}
+        Vec3([x, y, z])
     }
 
     pub fn all(v: f32) -> Vec3 {
-        Vec3 {x: v, y: v, z: v}
+        Vec3([v, v, v])
     }
 
     pub fn zero() -> Vec3 {
-        Vec3 {x: 0.0, y: 0.0, z: 0.0}
+        Vec3([0.0, 0.0, 0.0])
+    }
+
+    #[inline(always)]
+    pub fn x(&self) -> f32 {
+        self.0[0]
+    }
+
+    #[inline(always)]
+    pub fn y(&self) -> f32 {
+        self.0[1]
+    }
+
+    #[inline(always)]
+    pub fn z(&self) -> f32 {
+        self.0[2]
     }
 
     pub fn length(&self) -> f32 {
@@ -39,23 +49,39 @@ impl Vec3 {
     }
 
     pub fn dot(&self, rhs: &Vec3) -> f32 {
-        self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
+        self.x() * rhs.x() + self.y() * rhs.y() + self.z() * rhs.z()
     }
 
     pub fn cross(&self, rhs: &Vec3) -> Vec3 {
-        Vec3 {
-            x: self.y * rhs.z - self.z * rhs.y,
-            y: self.z * rhs.x - self.x * rhs.z,
-            z: self.x * rhs.y - self.y * rhs.x,
-        }
+        Vec3([
+            self.y() * rhs.z() - self.z() * rhs.y(),
+            self.z() * rhs.x() - self.x() * rhs.z(),
+            self.x() * rhs.y() - self.y() * rhs.x(),
+        ])
     }
 
     pub fn normalized(self) -> Vec3 {
         self * self.length().recip()
     }
+
+    pub fn min(self, v: Vec3) -> Vec3 {
+        Vec3::new(
+            self[0].min(v[0]),
+            self[1].min(v[1]),
+            self[2].min(v[2]),
+        )
+    }
+
+    pub fn max(self, v: Vec3) -> Vec3 {
+        Vec3::new(
+            self[0].max(v[0]),
+            self[1].max(v[1]),
+            self[2].max(v[2]),
+        )
+    }
 }
 
-// Macro to automatically declare operator overloads for all value and borrow type
+// macro to automatically declare operator overloads for all value and borrow type
 // combinations, using the same code block as the body.
 macro_rules! impl_binary_op {
     ($op:tt : $method:ident => (
@@ -95,36 +121,59 @@ macro_rules! impl_binary_op {
 }
 
 impl_binary_op!(Add : add => (lhs: Vec3, rhs: Vec3) -> Vec3 {
-    Vec3 {
-        x: lhs.x + rhs.x,
-        y: lhs.y + rhs.y,
-        z: lhs.z + rhs.z,
-    }
+    Vec3([
+        lhs.x() + rhs.x(),
+        lhs.y() + rhs.y(),
+        lhs.z() + rhs.z(),
+    ])
 });
 
 impl_binary_op!(Sub : sub => (lhs: Vec3, rhs: Vec3) -> Vec3 {
-    Vec3 {
-        x: lhs.x - rhs.x,
-        y: lhs.y - rhs.y,
-        z: lhs.z - rhs.z,
-    }
+    Vec3([
+        lhs.x() - rhs.x(),
+        lhs.y() - rhs.y(),
+        lhs.z() - rhs.z(),
+    ])
 });
 
 impl_binary_op!(Mul : mul => (lhs: Vec3, rhs: f32) -> Vec3 {
-    Vec3 {
-        x: lhs.x * rhs,
-        y: lhs.y * rhs,
-        z: lhs.z * rhs,
-    }
+    Vec3([
+        lhs.x() * rhs,
+        lhs.y() * rhs,
+        lhs.z() * rhs,
+    ])
+});
+
+impl_binary_op!(Mul : mul => (lhs: f32, rhs: Vec3) -> Vec3 {
+    Vec3([
+        rhs.x() * lhs,
+        rhs.y() * lhs,
+        rhs.z() * lhs,
+    ])
 });
 
 impl_binary_op!(Div : div => (lhs: Vec3, rhs: f32) -> Vec3 {
-    Vec3 {
-        x: lhs.x / rhs,
-        y: lhs.y / rhs,
-        z: lhs.z / rhs,
-    }
+    Vec3([
+        lhs.x() / rhs,
+        lhs.y() / rhs,
+        lhs.z() / rhs,
+    ])
 });
+
+
+impl ops::Index<usize> for Vec3 {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl ops::IndexMut<usize> for Vec3 {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
 
 impl ops::AddAssign for Vec3 {
     fn add_assign(&mut self, rhs: Self) {
@@ -153,10 +202,10 @@ impl ops::DivAssign<f32> for Vec3 {
 impl ops::Neg for Vec3 {
     type Output = Vec3;
     fn neg(self) -> Self::Output {
-        Vec3 {
-            x: -self.x,
-            y: -self.y,
-            z: -self.z,
-        }
+        Vec3([
+            -self.x(),
+            -self.y(),
+            -self.z(),
+        ])
     }
 }
