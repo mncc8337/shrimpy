@@ -10,6 +10,14 @@ fn is_equal(a: f32, b: f32) -> bool  {
     return abs(a - b) <= EPSILON;
 }
 
+// Schlick's approximation for reflectance
+fn reflectance_schlick(cosine: f32, ior: f32) -> f32 {
+    var r0 = (1.0 - ior) / (1.0 + ior);
+    r0 *= r0;
+    var icos = 1.0 - cosine;
+    return r0 + (1.0 - r0) * icos * icos * icos * icos * icos;
+}
+
 // a slightly modified version of the "One-at-a-Time Hash" function by Bob Jenkins
 // see https://www.burtleburtle.net/bob/hash/doobs.html
 fn jenkins_hash(i: u32) -> u32 {
@@ -198,6 +206,7 @@ fn new_ray(pos: vec4f) -> Ray {
     let jitter = rand_circle() * uniforms.camera.diverge_strength;
     var uv = pos.xyz / vec3f(f32(uniforms.width - 1), f32(uniforms.height - 1), 1.0);
     uv = (2.0 * uv - vec3f(1.0)) * vec3f(aspect_ratio, -1.0, 0.0);
+
     uv = camera_up_direction * (uv.y + jitter.y) + camera_right_direction * (uv.x + jitter.x);
     
     let focal_length = uniforms.camera.width * 0.5 / tan(uniforms.camera.fov * 0.5);
@@ -422,25 +431,25 @@ fn get_ray_collision(ray: Ray) -> HitInfo {
     return closest_hit;
 }
 
-fn path_trace(ray_pos: vec4f) -> vec3f {
-    var incomming_light = vec3f(0.0, 0.0, 0.0);
-    var ray_color = vec3f(1.0);
+fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
+    var incomming_light = vec3f(0.0);
+    var ray_color = initial_ray_color;
 
     var ray = new_ray(ray_pos);
 
     var surrounding_volume_density = 0.0;
     var surrounding_volume_radiance = vec3f(0.0);
 
-    // check surrounding
-    for(var i = 0u; i < scene.sphere_count; i += 1u) {
-        let sphere = scene.spheres[i];
-        let d = ray.origin - sphere.center;
-        if dot(d, d) < sphere.radius * sphere.radius {
-            let material = scene.materials[sphere.material_id];
-            surrounding_volume_density += material.volume_density;
-            surrounding_volume_radiance += material.emission_strength * material.color;
-        }
-    }
+    // // check surrounding
+    // for(var i = 0u; i < scene.sphere_count; i += 1u) {
+    //     let sphere = scene.spheres[i];
+    //     let d = ray.origin - sphere.center;
+    //     if dot(d, d) < sphere.radius * sphere.radius {
+    //         let material = scene.materials[sphere.material_id];
+    //         surrounding_volume_density += material.volume_density;
+    //         surrounding_volume_radiance += material.emission_strength * material.color;
+    //     }
+    // }
 
     var bounces = 0u;
     while bounces < uniforms.camera.max_ray_bounces {
@@ -452,6 +461,10 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
         }
 
         let material = scene.materials[hit.material_id];
+        let new_ray_color = ray_color * material.color;
+        if new_ray_color.x == new_ray_color.y && new_ray_color.x == new_ray_color.z && new_ray_color.x == 0.0 {
+            break;
+        }
 
         if surrounding_volume_density > 0.0 {
             let scattering_distance = -log(rand()) / surrounding_volume_density;
@@ -494,10 +507,11 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
         } else {
             let cos_theta = abs(dot(ray.direction, hit.normal));
 
-            let ior = -select(material.roughness_or_ior, 1.0 / material.roughness_or_ior, hit.front_face);
+            var base_ior = -material.roughness_or_ior;
+            let ior = select(base_ior, 1.0 / base_ior, hit.front_face);
             let cannot_refract = ior * ior * (1.0 - cos_theta * cos_theta) > 1.0;
 
-            if cannot_refract {
+            if cannot_refract || reflectance_schlick(cos_theta, ior) > rand() {
                 ray.direction = reflect(ray.direction, hit.normal);
             } else {
                 ray.direction = refract(ray.direction, hit.normal, ior);
@@ -506,7 +520,7 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
         ray.origin = hit.point + ray.direction * EPSILON;
 
         // ray_color *= hit.normal * 0.5 + vec3f(0.5);
-        ray_color *= material.color;
+        ray_color = new_ray_color;
         incomming_light += ray_color * material.emission_strength;
 
         bounces += 1;
@@ -532,13 +546,13 @@ fn fs_display(
     }
 
     // save new progress and render
-    let path_traced = vec4f(path_trace(pos), 1.0);
+    let path_traced = vec4f(path_trace(pos, vec3f(1.0)), 1.0);
     color += path_traced;
     textureStore(radiance_samples_new, vec2u(pos.xy), color);
 
-    // return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
+    return pow(color / f32(uniforms.frame_count), vec4f(1.0 / uniforms.gamma_correction));
     // return pow(path_traced, vec4f(1.0 / uniforms.gamma_correction));
-    return path_traced;
+    // return path_traced;
 }
 
 var<private> vertices: array<vec2f, 6> = array<vec2f, 6>(

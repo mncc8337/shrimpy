@@ -170,20 +170,20 @@ fn scene_build(gfx: &mut Gfx) {
         tri.vertex_2 += Vec3::new(0.0, 1.35, 0.0);
     }
     gfx.scene_add_triangles(&dodec);
-
-    for tri in dodec.iter_mut() {
-        tri.vertex_0 += Vec3::new(0.0, 3.35, 0.0);
-        tri.vertex_1 += Vec3::new(0.0, 3.35, 0.0);
-        tri.vertex_2 += Vec3::new(0.0, 3.35, 0.0);
-    }
-    gfx.scene_add_triangles(&dodec);
-
-    for tri in dodec.iter_mut() {
-        tri.vertex_0 += Vec3::new(4.0, 3.35, 0.0);
-        tri.vertex_1 += Vec3::new(4.0, 3.35, 0.0);
-        tri.vertex_2 += Vec3::new(4.0, 3.35, 0.0);
-    }
-    gfx.scene_add_triangles(&dodec);
+    //
+    // for tri in dodec.iter_mut() {
+    //     tri.vertex_0 += Vec3::new(0.0, 3.35, 0.0);
+    //     tri.vertex_1 += Vec3::new(0.0, 3.35, 0.0);
+    //     tri.vertex_2 += Vec3::new(0.0, 3.35, 0.0);
+    // }
+    // gfx.scene_add_triangles(&dodec);
+    //
+    // for tri in dodec.iter_mut() {
+    //     tri.vertex_0 += Vec3::new(4.0, 3.35, 0.0);
+    //     tri.vertex_1 += Vec3::new(4.0, 3.35, 0.0);
+    //     tri.vertex_2 += Vec3::new(4.0, 3.35, 0.0);
+    // }
+    // gfx.scene_add_triangles(&dodec);
 
 
     gfx.scene_update();
@@ -193,7 +193,9 @@ fn scene_build(gfx: &mut Gfx) {
 
     // camera
     let camera = gfx.get_camera();
-    camera.max_ray_bounces = 25;
+    camera.max_ray_bounces = 50;
+    camera.width = 1.0;
+    camera.fov = 90.0 * 3.141592654 / 180.0;
     camera.apeture = 0.0;
     camera.position = Vec3::new(0.0, 1.5, 2.0);
 }
