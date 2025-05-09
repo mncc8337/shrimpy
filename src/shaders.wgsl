@@ -161,7 +161,7 @@ struct Uniforms {
     elapsed_seconds: f32,
     frame_count: u32,
     gamma_correction: f32,
-    psuedo_chromatic_abrreration: f32,
+    psuedo_chromatic_aberration: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -452,18 +452,18 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
     //     }
     // }
 
-    var chromatic_abrreration = 0.0;
-    if uniforms.psuedo_chromatic_abrreration > 0.0 {
+    var chromatic_aberration_diff = 0.0;
+    if uniforms.psuedo_chromatic_aberration > 0.0 {
         let channel = u32(rand() * 100) % 3;
         if channel == 0 {
             ray_color = vec3f(1.0, 0.0, 0.0);
-            chromatic_abrreration = rand_normal() * 0.1 + 0.2;
+            chromatic_aberration_diff = rand_normal() * 0.1 - 0.1;
         } else if channel == 1 {
             ray_color = vec3f(0.0, 1.0, 0.0);
-            chromatic_abrreration = rand_normal() * 0.1 + 0.1;
+            chromatic_aberration_diff = rand_normal() * 0.1;
         } else {
             ray_color = vec3f(0.0, 0.0, 1.0);
-            chromatic_abrreration = rand_normal() * 0.1;
+            chromatic_aberration_diff = rand_normal() * 0.1 + 0.1;
         }
     }
 
@@ -525,7 +525,7 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
             let cos_theta = abs(dot(ray.direction, hit.normal));
 
             var base_ior = -material.roughness_or_ior;
-            base_ior += uniforms.psuedo_chromatic_abrreration * chromatic_abrreration * pow(1.02, base_ior);
+            base_ior += uniforms.psuedo_chromatic_aberration * chromatic_aberration_diff * pow(1.02, base_ior);
             let ior = select(base_ior, 1.0 / base_ior, hit.front_face);
             let cannot_refract = ior * ior * (1.0 - cos_theta * cos_theta) > 1.0;
 
@@ -544,7 +544,7 @@ fn path_trace(ray_pos: vec4f) -> vec3f {
         bounces += 1;
     }
 
-    if uniforms.psuedo_chromatic_abrreration > 0.0 {
+    if uniforms.psuedo_chromatic_aberration > 0.0 {
         incomming_light *= 3.0;
     }
     return incomming_light;

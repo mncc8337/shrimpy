@@ -25,7 +25,7 @@ pub struct Uniforms {
     elapsed_seconds: f32,
     frame_count: u32,
     pub gamma_correction: f32,
-    pub psuedo_chromatic_abrreration: f32,
+    pub psuedo_chromatic_aberration: f32,
     _pad0: [u32; 2],
 }
 
@@ -103,7 +103,7 @@ impl Gfx {
             elapsed_seconds: 0.0,
             frame_count: 0,
             gamma_correction: 2.2,
-            psuedo_chromatic_abrreration: 0.0,
+            psuedo_chromatic_aberration: 0.0,
             _pad0: [0; 2],
         };
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {

@@ -201,7 +201,7 @@ fn scene_build(gfx: &mut Gfx) {
 
     // misc
     let uniforms = gfx.get_uniforms();
-    uniforms.psuedo_chromatic_abrreration = 0.12;
+    uniforms.psuedo_chromatic_aberration = 0.12;
     uniforms.gamma_correction = 1.8;
 }
 
