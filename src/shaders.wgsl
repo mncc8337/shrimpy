@@ -161,6 +161,7 @@ struct Uniforms {
     elapsed_seconds: f32,
     frame_count: u32,
     gamma_correction: f32,
+    psuedo_chromatic_abrreration: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -431,9 +432,9 @@ fn get_ray_collision(ray: Ray) -> HitInfo {
     return closest_hit;
 }
 
-fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
+fn path_trace(ray_pos: vec4f) -> vec3f {
     var incomming_light = vec3f(0.0);
-    var ray_color = initial_ray_color;
+    var ray_color = vec3f(1.0);
 
     var ray = new_ray(ray_pos);
 
@@ -451,6 +452,21 @@ fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
     //     }
     // }
 
+    var chromatic_abrreration = 0.0;
+    if uniforms.psuedo_chromatic_abrreration > 0.0 {
+        let channel = u32(rand() * 100) % 3;
+        if channel == 0 {
+            ray_color = vec3f(1.0, 0.0, 0.0);
+            chromatic_abrreration = rand_normal() * 0.1 + 0.2;
+        } else if channel == 1 {
+            ray_color = vec3f(0.0, 1.0, 0.0);
+            chromatic_abrreration = rand_normal() * 0.1 + 0.1;
+        } else {
+            ray_color = vec3f(0.0, 0.0, 1.0);
+            chromatic_abrreration = rand_normal() * 0.1;
+        }
+    }
+
     var bounces = 0u;
     while bounces < uniforms.camera.max_ray_bounces {
         let hit = get_ray_collision(ray);
@@ -461,6 +477,7 @@ fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
         }
 
         let material = scene.materials[hit.material_id];
+
         let new_ray_color = ray_color * material.color;
         if new_ray_color.x == new_ray_color.y && new_ray_color.x == new_ray_color.z && new_ray_color.x == 0.0 {
             break;
@@ -508,6 +525,7 @@ fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
             let cos_theta = abs(dot(ray.direction, hit.normal));
 
             var base_ior = -material.roughness_or_ior;
+            base_ior += uniforms.psuedo_chromatic_abrreration * chromatic_abrreration * pow(1.02, base_ior);
             let ior = select(base_ior, 1.0 / base_ior, hit.front_face);
             let cannot_refract = ior * ior * (1.0 - cos_theta * cos_theta) > 1.0;
 
@@ -526,6 +544,9 @@ fn path_trace(ray_pos: vec4f, initial_ray_color: vec3f) -> vec3f {
         bounces += 1;
     }
 
+    if uniforms.psuedo_chromatic_abrreration > 0.0 {
+        incomming_light *= 3.0;
+    }
     return incomming_light;
 }
 
@@ -546,7 +567,7 @@ fn fs_display(
     }
 
     // save new progress and render
-    let path_traced = vec4f(path_trace(pos, vec3f(1.0)), 1.0);
+    var path_traced = vec4f(path_trace(pos), 1.0);
     color += path_traced;
     textureStore(radiance_samples_new, vec2u(pos.xy), color);
 

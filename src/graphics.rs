@@ -19,13 +19,14 @@ use {
 #[derive(Copy, Clone, Pod, Zeroable)]
 // size 96
 pub struct Uniforms {
-    pub camera: Camera,
+    camera: Camera,
     width: u32,
     height: u32,
     elapsed_seconds: f32,
     frame_count: u32,
     pub gamma_correction: f32,
-    _pad0: [u32; 3],
+    pub psuedo_chromatic_abrreration: f32,
+    _pad0: [u32; 2],
 }
 
 pub struct Gfx {
@@ -97,14 +98,13 @@ impl Gfx {
 
         let uniforms = Uniforms {
             camera: Camera::new(),
-            // ^
             width: window_size.width,
             height: window_size.height,
             elapsed_seconds: 0.0,
             frame_count: 0,
             gamma_correction: 2.2,
-            _pad0: [0; 3],
-            // ^
+            psuedo_chromatic_abrreration: 0.0,
+            _pad0: [0; 2],
         };
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
@@ -386,6 +386,10 @@ impl Gfx {
 
     pub fn get_camera(&mut self) -> &mut Camera {
         &mut self.uniforms.camera
+    }
+
+    pub fn get_uniforms(&mut self) -> &mut Uniforms {
+        &mut self.uniforms
     }
 
     pub fn render_reset(&mut self) {
